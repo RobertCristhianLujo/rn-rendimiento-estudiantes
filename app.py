@@ -1,11 +1,15 @@
 from flask import Flask, request, jsonify
 import tensorflow as tf
 import numpy as np
+import os
 
 app = Flask(__name__)
 
-# Cargar modelo Keras entrenado en Colab
-model = tf.keras.models.load_model("student_performance_model.h5")
+# Ruta absoluta al archivo del modelo
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_PATH = os.path.join(BASE_DIR, "student_performance_model.h5")
+
+model = tf.keras.models.load_model(MODEL_PATH)
 
 # Mapeo de clases
 CLASS_LABELS = {
