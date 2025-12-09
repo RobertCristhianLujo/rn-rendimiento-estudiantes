@@ -1,25 +1,58 @@
 from flask import Flask, request, jsonify
 import tensorflow as tf
-import joblib
-import pandas as pd
 import numpy as np
-import json
 
 app = Flask(__name__)
 
-# Cargar modelo y preprocesador
+# Cargar modelo Keras entrenado en Colab
 model = tf.keras.models.load_model("student_performance_model.h5")
-preprocessor = joblib.load("preprocessor_student_performance.pkl")
 
-with open("feature_columns.json", "r") as f:
-    feature_cols = json.load(f)
-
-# Mapeo de clase numérica a etiqueta legible
+# Mapeo de clases
 CLASS_LABELS = {
     0: "bajo",
     1: "medio",
     2: "alto"
 }
+
+# Categorías usadas en el entrenamiento (DEBEN COINCIDIR CON EL NOTEBOOK)
+GENDER_CATS = ["female", "male"]
+RACE_CATS = ["group A", "group B", "group C", "group D", "group E"]
+PARENT_EDU_CATS = [
+    "some high school",
+    "high school",
+    "some college",
+    "associate's degree",
+    "bachelor's degree",
+    "master's degree",
+]
+LUNCH_CATS = ["free/reduced", "standard"]
+PREP_CATS = ["none", "completed"]
+
+def one_hot(value, categories):
+    """Devuelve un vector one-hot para 'value' dado un listado de categories."""
+    vec = [0] * len(categories)
+    if value in categories:
+        idx = categories.index(value)
+        vec[idx] = 1
+    return vec
+
+def encode_input(data):
+    """
+    data: dict con las claves:
+    - gender
+    - race_ethnicity
+    - parental_level_of_education
+    - lunch
+    - test_preparation_course
+    """
+    gender_vec = one_hot(data["gender"], GENDER_CATS)
+    race_vec = one_hot(data["race_ethnicity"], RACE_CATS)
+    parent_vec = one_hot(data["parental_level_of_education"], PARENT_EDU_CATS)
+    lunch_vec = one_hot(data["lunch"], LUNCH_CATS)
+    prep_vec = one_hot(data["test_preparation_course"], PREP_CATS)
+
+    full_vec = gender_vec + race_vec + parent_vec + lunch_vec + prep_vec
+    return np.array(full_vec, dtype=float).reshape(1, -1)
 
 @app.route("/")
 def index():
@@ -28,25 +61,21 @@ def index():
 @app.route("/predict", methods=["POST"])
 def predict():
     try:
-        # Esperamos un JSON con las 5 características
         data = request.get_json()
 
-        # Verificar que todas las columnas necesarias estén presentes
-        for col in feature_cols:
-            if col not in data:
-                return jsonify({
-                    "error": f"Falta el campo requerido: {col}"
-                }), 400
+        required_fields = [
+            "gender",
+            "race_ethnicity",
+            "parental_level_of_education",
+            "lunch",
+            "test_preparation_course",
+        ]
+        for field in required_fields:
+            if field not in data:
+                return jsonify({"error": f"Falta el campo requerido: {field}"}), 400
 
-        # Crear DataFrame con un solo registro
-        input_df = pd.DataFrame([ {col: data[col] for col in feature_cols} ])
-
-        # Aplicar mismo preprocesamiento que en el entrenamiento
-        X_enc = preprocessor.transform(input_df)
-        X_enc = X_enc.toarray()
-
-        # Predicción del modelo
-        preds = model.predict(X_enc)
+        x_input = encode_input(data)  # vector 1 x N
+        preds = model.predict(x_input)
         class_idx = int(np.argmax(preds, axis=1)[0])
         prob = float(np.max(preds))
 
